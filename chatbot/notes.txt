@@ -1,0 +1,16 @@
+Persistence:
+it requires check points , it adds checkpoints ater every super step completion , and modify state and intermediate state merging , eg numbers: Annotated[list[int], add]
+now numbers list wil be adding 1,2,3,4,5 after every super step in one time run of workflow
+what if im executing second time the whole workflow and then it will be adding number [6,7,8,9,10], but now i just want to save second execution of workflow , here comes teh concept of THREAD, we will include thread id to differentiate the between both execution.this iwll help in new chat.
+
+
+Benefits of persistence in chatbot:
+short term implement ,
+Human in the loop 
+fault tolerence
+time travel
+
+*****************************************
+
+"configurable" works because LangGraph is explicitly coded to look for that exact key
+👉 "configuration" fails because it is not recognized anywhere in the framework
