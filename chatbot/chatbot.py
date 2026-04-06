@@ -18,7 +18,8 @@ class ChatState(TypedDict):
 
 def chat_node(state: ChatState):
     messages = state['messages']
-    response = llm.invoke(messages)
+    prompt = f'always reply to my messages in good british words or vacabulory for the given message: {messages}'
+    response = llm.invoke(prompt)
     return {"messages": [response]}
 
 # Checkpointer

@@ -14,3 +14,131 @@ time travel
 
 "configurable" works because LangGraph is explicitly coded to look for that exact key
 👉 "configuration" fails because it is not recognized anywhere in the framework
+
+********************************     UUID   ***************
+UUID Version 1 (uuid1)
+
+👉 Based on Time + MAC Address
+
+⚙️ How it works:
+Uses current timestamp
+Uses machine MAC address
+Combines both → generates ID
+🧪 Example:
+f47ac10b-58cc-11cf-a911-00a0c91e6bf6
+✅ Advantages:
+Mostly unique (very reliable)
+Ordered → useful for databases (better indexing)
+❌ Disadvantages:
+⚠️ Exposes MAC address (privacy risk)
+⚠️ Can reveal creation time
+Predictable pattern
+
+Use UUID1 when:
+You need time ordering
+Internal backend system
+Logs, event tracking
+
+🔵 UUID Version 4 (uuid4)
+
+👉 Based on Random Numbers
+
+⚙️ How it works:
+Uses random or pseudo-random numbers
+No machine info, no timestamp
+🧪 Example:
+3f50c8b2-8f9f-4d3a-bc9a-1a2f3e4d5c6b
+✅ Advantages:
+🔒 Very secure (no info leakage)
+Completely random → hard to guess
+Best for APIs, tokens, public IDs
+❌ Disadvantages:
+Not ordered → slower DB indexing sometimes
+
+Use UUID4 when:
+You need security + randomness
+Public APIs
+AI apps (like your RAG system)
+
+UUID Version 3 (uuid3)
+
+👉 Based on:
+
+Namespace + Name
+Uses MD5 hashing
+⚙️ How it works
+
+You give:
+
+A namespace (like a category)
+A name (string input)
+
+👉 It hashes them → generates UUID
+
+🧪 Example
+import uuid
+
+uuid.uuid3(uuid.NAMESPACE_DNS, "google.com")
+
+👉 Always gives same output for "google.com"
+
+✅ Advantages
+Deterministic (same input → same UUID)
+Useful for mapping unique resources
+❌ Disadvantages
+Uses MD5 (not secure) ⚠️
+Vulnerable to collisions (rare but possible)
+🔵 UUID Version 5 (uuid5)
+
+👉 Same concept as UUID3, but better 🔥
+
+Uses SHA-1 hashing instead of MD5
+⚙️ How it works
+
+Same inputs:
+
+Namespace
+Name
+
+But uses stronger hashing
+
+🧪 Example
+import uuid
+
+uuid.uuid5(uuid.NAMESPACE_DNS, "google.com")
+
+👉 Same input → same UUID (always)
+
+✅ Advantages
+Deterministic ✅
+More secure than UUID3 🔒
+Widely preferred over UUID3
+❌ Disadvantages
+Still not fully “cryptographically perfect” (SHA-1 is old)
+Not random (predictable if input known)
+
+
+
+UUID1 (Time + MAC)
+UUID1: 6fa459ea-ee8a-11d2-9901-00155d010000
+
+👉 Changes every time
+👉 Contains timestamp + machine info
+
+🔵 UUID4 (Random)
+UUID4: 3d594650-3436-4f1b-9c2e-0a6c5f5d3e2b
+
+👉 Fully random
+👉 Most commonly used 🚀
+
+🟣 UUID3 (MD5, Deterministic)
+UUID3: 9073926b-929f-31c2-abc9-fad77ae3e8eb
+
+👉 Input: "example.com"
+👉 Run again → SAME output
+
+🔵 UUID5 (SHA-1, Deterministic)
+UUID5: cfbff0d1-9375-5685-968c-48ce8b15ae17
+
+👉 Same input → SAME output
+👉 More secure than UUID3
