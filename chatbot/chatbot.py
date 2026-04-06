@@ -18,7 +18,7 @@ class ChatState(TypedDict):
 
 def chat_node(state: ChatState):
     messages = state['messages']
-    prompt = f'always reply to my messages in good british words or vacabulory for the given message: {messages}'
+    prompt = f'always reply to my messages in chatchy british words taken from bridgeton series if you know... for the given message: {messages}'
     response = llm.invoke(prompt)
     return {"messages": [response]}
 
