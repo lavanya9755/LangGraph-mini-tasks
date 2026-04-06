@@ -5,7 +5,8 @@ from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
-from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
+import sqlite3
 
 load_dotenv()
 llm = ChatGoogleGenerativeAI(
@@ -23,7 +24,8 @@ def chat_node(state: ChatState):
     return {"messages": [response]}
 
 # Checkpointer
-checkpointer = InMemorySaver()
+conn = sqlite3.connect(database='chatbot.db', check_same_thread=False) #sqlite doesnt allow multiple threads in defualt , therefore check_same thread needs to eb false
+checkpointer = SqliteSaver(conn = conn)
 
 graph = StateGraph(ChatState)
 graph.add_node("chat_node", chat_node)
@@ -32,6 +34,13 @@ graph.add_edge("chat_node", END)
 
 chatbot = graph.compile(checkpointer=checkpointer)
 
-# print(type(stream))
+CONFIG = {'configurable': {'thread_id': 'thread-2'}}
+
+result = chatbot.invoke(
+                {'messages': [HumanMessage(content="Can tell me Indias capital city name and start with greeting my name?")]},
+                config= CONFIG
+               
+            )
+print(result)
 
 # there are diff types stream_mode: updates, custome, values messages

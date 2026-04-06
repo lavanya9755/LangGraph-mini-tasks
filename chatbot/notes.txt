@@ -142,3 +142,45 @@ UUID5: cfbff0d1-9375-5685-968c-48ce8b15ae17
 
 👉 Same input → SAME output
 👉 More secure than UUID3
+
+
+**************************** Memory Saver in LangGraph **********************
+1. InMemory Saver (Temporary Memory) 🧠
+
+This is the simplest memory type in LangGraph. It stores the conversation or state only in RAM, meaning everything is lost once the program stops.
+
+👉 Use it when:
+
+You are testing / debugging
+You don’t need persistence
+Quick prototyping
+
+👉 Key idea:
+
+Fast but not persistent
+
+2. SQLite Saver (Lightweight Persistent Memory) 💾
+
+This stores memory in a local SQLite database file. Unlike InMemory, it persists even after restart.
+
+👉 Use it when:
+
+Small to medium apps
+Local development
+You want persistence without complex setup
+
+👉 Key idea:Simple persistent storage on disk
+
+3. Postgres Saver (Production-Grade Memory) 🏢
+
+This stores memory in a PostgreSQL database, making it suitable for scalable, production-level applications.
+
+👉 Use it when:
+
+Multiple users
+Large-scale apps
+Deployment (cloud/backend systems)
+
+👉 Key idea:
+
+Scalable + reliable + multi-user
