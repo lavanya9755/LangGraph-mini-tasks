@@ -11,33 +11,8 @@ from pydantic import BaseModel, Field
 from langgraph.checkpoint.sqlite import SqliteSaver
 import sqlite3
 import requests
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from dotenv import load_dotenv
-import aiosqlite
-import asyncio
-import threading
 
 load_dotenv()
-
-# Dedicated async loop for backend tasks
-_ASYNC_LOOP = asyncio.new_event_loop()
-_ASYNC_THREAD = threading.Thread(target=_ASYNC_LOOP.run_forever, daemon=True)
-_ASYNC_THREAD.start()
-
-
-def _submit_async(coro):
-    return asyncio.run_coroutine_threadsafe(coro, _ASYNC_LOOP)
-
-
-def run_async(coro):
-    return _submit_async(coro).result()
-
-
-def submit_async_task(coro):
-    """Schedule a coroutine on the backend event loop."""
-    return _submit_async(coro)
-
-
 llm = ChatGoogleGenerativeAI(
     model = "gemini-2.5-flash",
     temperature = 0.7
@@ -82,19 +57,6 @@ def get_stock_price(symbol: str) -> dict:
     return r.json()
 
 
-client = MultiServerMCPClient(
-    {
-        "arith": {
-            "transport": "stdio",
-            "command": "python3",
-            "args": ["C:\Users\LENOVO\OneDrive\Desktop\LangGraph\chatbot\mcp_server.py"],
-        },
-        "expense": {
-            "transport": "streamable_http",  # if this fails, try "sse"
-            "url": "https://splendid-gold-dingo.fastmcp.app/mcp"
-        }
-    }
-)
 
 tools = [search_tool, get_stock_price, calculator]
 llm_with_tools = llm.bind_tools(tools)

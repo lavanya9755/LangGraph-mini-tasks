@@ -6,4 +6,7 @@ pydantic
 langchain_google_genai
 python-dotenv
 google-generativeai
+langchain-mcp-adapters
 langchain_chroma
+aiosqlite
+pip install fastapi uvicorn
