@@ -9,9 +9,11 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_community.tools import DuckDuckGoSearchRun
 from pydantic import BaseModel, Field
 from langchain_core.tools import tool, BaseTool
+from langgraph.prebuilt import create_react_agent
+# from langchain.agents import create_react_agent
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-
+from langchain_openai import ChatOpenAI
 import sqlite3
 import requests
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -19,7 +21,7 @@ from dotenv import load_dotenv
 import aiosqlite
 import asyncio
 import threading
-
+import os
 load_dotenv()
 
 # Dedicated async loop for backend tasks
@@ -41,10 +43,18 @@ def submit_async_task(coro):
     return _submit_async(coro)
 
 
-llm = ChatGoogleGenerativeAI(
-    model = "gemini-2.5-flash",
-    temperature = 0.7
+
+llm = ChatOpenAI(
+    model="anthropic/claude-3-haiku",  # or any model
+    temperature=0.7,
+    openai_api_key= os.getenv("OPEN_ROUTER_API"),
+    openai_api_base="https://openrouter.ai/api/v1"
 )
+
+# llm = ChatGoogleGenerativeAI(
+#     model = "gemini-2.5-flash",
+#     temperature = 0.7
+# )
 search_tool = DuckDuckGoSearchRun(region="us-en")
 
 @tool
@@ -89,8 +99,8 @@ client = MultiServerMCPClient(
     {
         "task_manager": {
             "transport": "stdio",
-            "command": "python3",
-            "args": [r"C:\Users\LENOVO\OneDrive\Desktop\LangGraph\chatbot\mcp_server.py"],
+            "command": "python",
+            "args":["mcp_server.py"]
         },
         "expense": {
             "transport": "streamable_http",  
@@ -101,25 +111,38 @@ client = MultiServerMCPClient(
 def load_mcp_tools() -> list[BaseTool]:
     try:
         return run_async(client.get_tools())
-    except Exception:
+    except Exception as e:
+        print("❌ MCP load failed:", e)
         return []
 
 
 mcp_tools = load_mcp_tools()
+print("MCP tools:", mcp_tools)
+
 
 tools = [search_tool, get_stock_price, *mcp_tools]
 llm_with_tools = llm.bind_tools(tools) if tools else llm
-
+agent = create_react_agent(llm_with_tools, tools)  # ✅ correct
+print("TOOLS\n",tools)
+print(llm_with_tools)
 class ChatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
 async def chat_node(state: ChatState):
-        """LLM node that may answer or request a tool call."""
+    messages = state["messages"]
 
-        messages = state['messages']
-        # prompt = f'  {messages}'
-        response = await llm_with_tools.ainvoke(messages)
-        return {"messages": [response]}
+    system_msg = {
+        "role": "system",
+        "content": "You are a helpful assistant. Greet the user and help with their request."
+    }
+
+    response = await agent.ainvoke({
+        "messages": [system_msg] + messages
+    })
+
+    return {
+        "messages": response["messages"]
+    }
 
 tool_node = ToolNode(tools)
 

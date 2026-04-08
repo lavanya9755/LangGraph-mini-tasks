@@ -71,7 +71,7 @@ for msg in st.session_state['message_history']:
     with st.chat_message(msg['role']):
         st.text(msg['content'])
 
-
+# print(tools)
 user_input = st.chat_input('Type here.....')
 
 if user_input:
