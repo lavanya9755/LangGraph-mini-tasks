@@ -8,7 +8,10 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_community.tools import DuckDuckGoSearchRun
 from pydantic import BaseModel, Field
+from langchain_core.tools import tool, BaseTool
 from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
 import sqlite3
 import requests
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -84,53 +87,74 @@ def get_stock_price(symbol: str) -> dict:
 
 client = MultiServerMCPClient(
     {
-        "arith": {
+        "task_manager": {
             "transport": "stdio",
             "command": "python3",
-            "args": ["C:\Users\LENOVO\OneDrive\Desktop\LangGraph\chatbot\mcp_server.py"],
+            "args": [r"C:\Users\LENOVO\OneDrive\Desktop\LangGraph\chatbot\mcp_server.py"],
         },
         "expense": {
-            "transport": "streamable_http",  # if this fails, try "sse"
+            "transport": "streamable_http",  
             "url": "https://splendid-gold-dingo.fastmcp.app/mcp"
         }
     }
 )
+def load_mcp_tools() -> list[BaseTool]:
+    try:
+        return run_async(client.get_tools())
+    except Exception:
+        return []
 
-tools = [search_tool, get_stock_price, calculator]
-llm_with_tools = llm.bind_tools(tools)
+
+mcp_tools = load_mcp_tools()
+
+tools = [search_tool, get_stock_price, *mcp_tools]
+llm_with_tools = llm.bind_tools(tools) if tools else llm
 
 class ChatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
-def chat_node(state: ChatState):
-    messages = state['messages']
-    prompt = f'always reply to my messages in chatchy british words taken from bridgeton series if you know... for the given message: {messages}'
-    response = llm.invoke(prompt)
-    return {"messages": [response]}
+async def chat_node(state: ChatState):
+        """LLM node that may answer or request a tool call."""
 
-# Checkpointer
-conn = sqlite3.connect(database='chatbot.db', check_same_thread=False) #sqlite doesnt allow multiple threads in defualt , therefore check_same thread needs to eb false
-checkpointer = SqliteSaver(conn = conn)
+        messages = state['messages']
+        # prompt = f'  {messages}'
+        response = await llm_with_tools.ainvoke(messages)
+        return {"messages": [response]}
+
 tool_node = ToolNode(tools)
 
+async def _init_checkpointer():
+    conn = await aiosqlite.connect(database="chatbot.db")
+    return AsyncSqliteSaver(conn)
+
+
+    
+checkpointer = run_async(_init_checkpointer())
 graph = StateGraph(ChatState)
 graph.add_node("chat_node", chat_node)
-graph.add_node("tools",tool_node)
-
+# graph.add_node("tools",tool_node)
 graph.add_edge(START, "chat_node")
 
-graph.add_conditional_edges("chat_node",tools_condition)
-graph.add_edge('tools', 'chat_node')
+if tool_node:
+    graph.add_node("tools", tool_node)
+    graph.add_conditional_edges("chat_node", tools_condition)
+    graph.add_edge("tools", "chat_node")
+else:
+    graph.add_edge("chat_node", END)
 
 chatbot = graph.compile(checkpointer=checkpointer)
 
-def retrieve_all_threads():
-    all_threads = set()
-    for chk in checkpointer.list(None):
-        all_threads.add(chk.config['configurable']['thread_id'])
 
+async def _alist_threads():
+    all_threads = set()
+    async for checkpoint in checkpointer.alist(None):
+        all_threads.add(checkpoint.config["configurable"]["thread_id"])
     return list(all_threads)
-     #this means all checpoints needs to be rpitn
+
+
+def retrieve_all_threads():
+    return run_async(_alist_threads())
+     #this means all checpoints needs to be print
 
 # CONFIG = {'configurable': {'thread_id': 'thread-3'}}
 
