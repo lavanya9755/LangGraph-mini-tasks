@@ -18,7 +18,7 @@ import sqlite3
 import requests
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from dotenv import load_dotenv
-import aiosqlite
+import aiosqlite # type: ignore
 import asyncio
 import threading
 import os
@@ -55,6 +55,7 @@ llm = ChatOpenAI(
 #     model = "gemini-2.5-flash",
 #     temperature = 0.7
 # )
+
 search_tool = DuckDuckGoSearchRun(region="us-en")
 
 @tool
@@ -123,8 +124,8 @@ print("MCP tools:", mcp_tools)
 tools = [search_tool, get_stock_price, *mcp_tools]
 llm_with_tools = llm.bind_tools(tools) if tools else llm
 agent = create_react_agent(llm_with_tools, tools)  # ✅ correct
-print("TOOLS\n",tools)
-print(llm_with_tools)
+# print("TOOLS\n",tools)
+# print(llm_with_tools)
 class ChatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
