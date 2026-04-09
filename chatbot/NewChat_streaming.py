@@ -2,10 +2,10 @@ import queue
 import uuid
 
 import streamlit as st
-from chatbot import chatbot, retrieve_all_threads, submit_async_task
+from chatbot import chatbot, retrieve_all_threads, submit_async_task, generate_chat_title
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-
+st.title("🤖 Lavanya's Chatbot")
 # utility functionsss
 def generate_thread_id():
     thread_id = uuid.uuid4()
@@ -37,7 +37,10 @@ if 'thread_id' not in st.session_state:
     st.session_state['thread_id'] = generate_thread_id()
 
 if 'chat_threads' not in st.session_state:
-    st.session_state['chat_threads'] = retrieve_all_threads()
+    st.session_state['chat_threads'] = []
+
+if "chat_titles" not in st.session_state:
+    st.session_state["chat_titles"] = {}
 
 add_thread(st.session_state['thread_id'])
 
@@ -45,13 +48,41 @@ add_thread(st.session_state['thread_id'])
 #side bar
 
 st.sidebar.title('LangGraph Chatbot')
-st.sidebar.button('GitHub Repo')
+
+
+repo_url = "https://github.com/lavanya9755/LangGraph-mini-tasks/tree/main/chatbot"
+
+
+st.sidebar.markdown(
+    f"""
+    <a href="{repo_url}" target="_blank">
+        <button style="
+            background-color:#24292e;
+            color:white;
+            padding:8px 18px;
+            border: 2px solid;
+            border-color:grey;
+            border-radius:8px;
+            cursor:pointer;">
+            GitHub Repo 
+        </button>
+    </a>
+    """,
+    unsafe_allow_html=True
+)
     
 if st.sidebar.button('New Chat'):
     reset_chat()
 st.sidebar.header('Your Chats')
-for thread in st.session_state['chat_threads'][::-1]:
-    if st.sidebar.button(str(thread)):
+
+# Reverse to show latest first
+threads = list(st.session_state['chat_threads'])
+threads.reverse()
+
+for thread in threads:
+    title = st.session_state["chat_titles"].get(thread,"new chat")
+
+    if st.sidebar.button(title, key=str(thread)):
         st.session_state['thread_id'] = thread
         messages = load_conversation(thread)
 
@@ -75,6 +106,12 @@ for msg in st.session_state['message_history']:
 user_input = st.chat_input('Type here.....')
 
 if user_input:
+    thread_id = st.session_state['thread_id']
+
+    # If new thread → generate title
+    if thread_id not in st.session_state["chat_titles"]:
+        st.session_state["chat_titles"][thread_id] = generate_chat_title(user_input)
+
     st.session_state["message_history"].append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.text(user_input)

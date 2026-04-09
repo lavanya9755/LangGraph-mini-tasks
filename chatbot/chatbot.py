@@ -42,7 +42,11 @@ def submit_async_task(coro):
     """Schedule a coroutine on the backend event loop."""
     return _submit_async(coro)
 
-
+def generate_chat_title(message):
+    message = message.strip().replace("\n", " ")
+    if len(message) < 5:
+        return "New Chat xoxo"
+    return message[:30] + "..." if len(message) > 30 else message
 
 llm = ChatOpenAI(
     model="anthropic/claude-3-haiku",  # or any model
@@ -112,8 +116,7 @@ client = MultiServerMCPClient(
 def load_mcp_tools() -> list[BaseTool]:
     try:
         return run_async(client.get_tools())
-    except Exception as e:
-        print("❌ MCP load failed:", e)
+    except Exception:
         return []
 
 
