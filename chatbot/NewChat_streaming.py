@@ -9,7 +9,21 @@ st.title("🤖 Lavanya's Chatbot")
 # utility functionsss
 def generate_thread_id():
     thread_id = uuid.uuid4()
-    return thread_id
+    return str(thread_id)
+
+
+def rebuild_titles():
+    for thread in st.session_state['chat_threads']:
+        if thread not in st.session_state["chat_titles"]:
+            messages = load_conversation(thread)
+
+            title = "New Chat"
+            for msg in messages:
+                if isinstance(msg, HumanMessage):
+                    title = generate_chat_title(msg.content)
+                    break
+
+            st.session_state["chat_titles"][thread] = title
 
 def reset_chat():
     thread_id = generate_thread_id()
@@ -18,6 +32,7 @@ def reset_chat():
     st.session_state['message_history'] = []
 
 def add_thread(thread_id):
+    thread_id = str(thread_id)
     if thread_id  not in st.session_state['chat_threads']:
         st.session_state['chat_threads'].append(thread_id)
 #in the output of get_state() of chatbot.invoke() there was the chat convo in Values as dictionary , in messages attribute
@@ -37,11 +52,13 @@ if 'thread_id' not in st.session_state:
     st.session_state['thread_id'] = generate_thread_id()
 
 if 'chat_threads' not in st.session_state:
-    st.session_state['chat_threads'] = []
+    db_threads = retrieve_all_threads()   #load from DB
+    st.session_state['chat_threads'] = db_threads
 
 if "chat_titles" not in st.session_state:
     st.session_state["chat_titles"] = {}
 
+rebuild_titles()
 add_thread(st.session_state['thread_id'])
 
 
@@ -75,9 +92,7 @@ if st.sidebar.button('New Chat'):
     reset_chat()
 st.sidebar.header('Your Chats')
 
-# Reverse to show latest first
 threads = list(st.session_state['chat_threads'])
-threads.reverse()
 
 for thread in threads:
     title = st.session_state["chat_titles"].get(thread,"new chat")
