@@ -17,21 +17,50 @@ def reset_chat():
     thread_id = generate_thread_id()
     st.session_state['thread_id'] = thread_id
     st.session_state['message_history'] = []
-    # Don't add to chat_threads yet — it will be added when the first message is sent
 
 def load_conversation(thread_id):
     state = chatbot.get_state(config={'configurable': {'thread_id': str(thread_id)}})
     return state.values.get('messages', [])
 
+def extract_display_messages(raw_messages):
+    """
+    Filter raw LangGraph messages down to only human/assistant turns
+    safe to display in the UI.
+    Excludes: SystemMessage, ToolMessage, and AIMessages with only tool-call content.
+    """
+    display = []
+    for msg in raw_messages:
+        if isinstance(msg, HumanMessage):
+            text = msg.content if isinstance(msg.content, str) else ""
+            if text.strip():
+                display.append({"role": "user", "content": text})
+
+        elif isinstance(msg, AIMessage):
+            content = msg.content
+            if isinstance(content, str):
+                text = content.strip()
+            elif isinstance(content, list):
+                # Keep only plain text blocks; discard tool_use / tool_result blocks
+                text = " ".join(
+                    block.get("text", "")
+                    for block in content
+                    if isinstance(block, dict) and block.get("type") == "text"
+                ).strip()
+            else:
+                text = ""
+
+            if text:
+                display.append({"role": "assistant", "content": text})
+
+        # Intentionally skip: SystemMessage, ToolMessage, and anything else
+    return display
+
 # ── Bootstrap session state on every run ────────────────────────────────────
 
-# Ensure the DB table exists
 init_titles_table()
 
-# Load persisted titles from DB once per session
 if 'titles_loaded' not in st.session_state:
-    st.session_state['chat_titles'] = load_all_chat_titles()   # {thread_id: title}
-    # Reconstruct thread list from persisted titles (preserves order of insertion)
+    st.session_state['chat_titles'] = load_all_chat_titles()
     st.session_state['chat_threads'] = list(st.session_state['chat_titles'].keys())
     st.session_state['titles_loaded'] = True
 
@@ -69,28 +98,15 @@ if st.sidebar.button('New Chat'):
 
 st.sidebar.header('Your Chats')
 
-# Show latest first
 threads = list(st.session_state['chat_threads'])
 threads.reverse()
 
 for thread in threads:
     title = st.session_state["chat_titles"].get(str(thread), "new chat")
-
     if st.sidebar.button(title, key=str(thread)):
         st.session_state['thread_id'] = thread
-        messages = load_conversation(thread)
-
-        temp_messages = []
-        for msg in messages:
-            if isinstance(msg, HumanMessage):
-                role = 'user'
-            else:
-                role = 'assistant'
-            # Skip empty content (e.g. tool-call-only AIMessages)
-            if msg.content:
-                temp_messages.append({'role': role, 'content': msg.content})
-
-        st.session_state['message_history'] = temp_messages
+        raw_messages = load_conversation(thread)
+        st.session_state['message_history'] = extract_display_messages(raw_messages)
 
 # ── Chat history display ─────────────────────────────────────────────────────
 
@@ -105,12 +121,11 @@ user_input = st.chat_input('Type here.....')
 if user_input:
     thread_id = str(st.session_state['thread_id'])
 
-    # ── Persist title on FIRST message of this thread ──────────────────────
     if thread_id not in st.session_state["chat_titles"]:
         title = generate_chat_title(user_input)
         st.session_state["chat_titles"][thread_id] = title
         st.session_state["chat_threads"].append(thread_id)
-        save_chat_title(thread_id, title)          # ← write to SQLite
+        save_chat_title(thread_id, title)
 
     st.session_state["message_history"].append({"role": "user", "content": user_input})
     with st.chat_message("user"):
@@ -122,7 +137,6 @@ if user_input:
         "run_name": "chat_turn",
     }
 
-    # ── Streaming block ──────────────────────────────────────────────────────
     with st.chat_message("assistant"):
         status_holder = {"box": None}
 
@@ -152,7 +166,6 @@ if user_input:
                 if message_chunk == "error":
                     raise metadata
 
-                # Update status box for tool calls
                 if isinstance(message_chunk, ToolMessage):
                     tool_name = getattr(message_chunk, "name", "tool")
                     if status_holder["box"] is None:
@@ -166,7 +179,6 @@ if user_input:
                             expanded=True,
                         )
 
-                # Stream only assistant tokens
                 if isinstance(message_chunk, AIMessage):
                     content = message_chunk.content
                     if isinstance(content, str):
@@ -183,7 +195,6 @@ if user_input:
                 label="✅ Tool finished", state="complete", expanded=False
             )
 
-    # Save assistant message to session
     st.session_state["message_history"].append(
         {"role": "assistant", "content": ai_message}
     )
