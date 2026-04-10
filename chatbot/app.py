@@ -5,17 +5,60 @@ import streamlit as st
 from chatbot2 import chatbot, retrieve_all_threads, submit_async_task, generate_chat_title
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from db_utils import init_titles_table, save_chat_title, load_all_chat_titles
+from rag_engine import ingest_files, query_rag, get_rag_stats, clear_rag
 
-st.title("🤖 Lavanya's Chatbot")
+# ─────────────────────────────────────────────────────────────────────────────
+#  Page config
+# ─────────────────────────────────────────────────────────────────────────────
+st.set_page_config(page_title="Lavanya's Chatbot", page_icon="🤖", layout="wide")
 
-# ── Utility functions ────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+.rag-badge {
+    display: inline-block;
+    background: #1a3a2a;
+    border: 1px solid #2d6a4f;
+    color: #74c69d;
+    font-size: 0.75rem;
+    padding: 3px 10px;
+    border-radius: 20px;
+    margin: 2px 3px;
+}
+.rag-info-box {
+    background: #0d1f17;
+    border-left: 3px solid #2d6a4f;
+    border-radius: 6px;
+    padding: 8px 14px;
+    margin-bottom: 10px;
+    font-size: 0.82rem;
+    color: #74c69d;
+}
+.rag-stat { font-weight: 600; color: #52b788; }
+.doc-pill {
+    background: #1e2d1e;
+    border: 1px solid #2d6a4f;
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: 0.78rem;
+    color: #95d5b2;
+    margin: 3px 0;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Utility functions
+# ─────────────────────────────────────────────────────────────────────────────
 
 def generate_thread_id():
     return str(uuid.uuid4())
 
 def reset_chat():
-    thread_id = generate_thread_id()
-    st.session_state['thread_id'] = thread_id
+    st.session_state['thread_id'] = generate_thread_id()
     st.session_state['message_history'] = []
 
 def load_conversation(thread_id):
@@ -23,24 +66,17 @@ def load_conversation(thread_id):
     return state.values.get('messages', [])
 
 def extract_display_messages(raw_messages):
-    """
-    Filter raw LangGraph messages down to only human/assistant turns
-    safe to display in the UI.
-    Excludes: SystemMessage, ToolMessage, and AIMessages with only tool-call content.
-    """
     display = []
     for msg in raw_messages:
         if isinstance(msg, HumanMessage):
             text = msg.content if isinstance(msg.content, str) else ""
             if text.strip():
                 display.append({"role": "user", "content": text})
-
         elif isinstance(msg, AIMessage):
             content = msg.content
             if isinstance(content, str):
                 text = content.strip()
             elif isinstance(content, list):
-                # Keep only plain text blocks; discard tool_use / tool_result blocks
                 text = " ".join(
                     block.get("text", "")
                     for block in content
@@ -48,15 +84,24 @@ def extract_display_messages(raw_messages):
                 ).strip()
             else:
                 text = ""
-
             if text:
                 display.append({"role": "assistant", "content": text})
-
-        # Intentionally skip: SystemMessage, ToolMessage, and anything else
     return display
 
-# ── Bootstrap session state on every run ────────────────────────────────────
+def build_rag_prompt(user_question: str, rag_result: dict) -> str:
+    ctx = rag_result.get("context", "")
+    if not ctx:
+        return user_question
+    return (
+        "Use the following document excerpts to help answer the question. "
+        "If the documents don't contain enough info, use your own knowledge too.\n\n"
+        f"--- DOCUMENT CONTEXT ---\n{ctx}\n--- END CONTEXT ---\n\n"
+        f"User question: {user_question}"
+    )
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  Bootstrap session state
+# ─────────────────────────────────────────────────────────────────────────────
 init_titles_table()
 
 if 'titles_loaded' not in st.session_state:
@@ -70,57 +115,100 @@ if 'message_history' not in st.session_state:
 if 'thread_id' not in st.session_state:
     st.session_state['thread_id'] = generate_thread_id()
 
-# ── Sidebar ──────────────────────────────────────────────────────────────────
+if 'rag_file_names' not in st.session_state:
+    st.session_state['rag_file_names'] = []
 
-st.sidebar.title('LangGraph Chatbot')
+#  Sidebar
+# ─────────────────────────────────────────────────────────────────────────────
+st.sidebar.title("🤖 LangGraph Chatbot")
 
 repo_url = "https://github.com/lavanya9755/LangGraph-mini-tasks/tree/main/chatbot"
 st.sidebar.markdown(
-    f"""
-    <a href="{repo_url}" target="_blank">
-        <button style="
-            background-color:#24292e;
-            color:white;
-            padding:8px 18px;
-            border: 2px solid;
-            border-color:grey;
-            border-radius:8px;
-            cursor:pointer;">
-            GitHub Repo 
-        </button>
-    </a>
-    """,
-    unsafe_allow_html=True
+    f'<a href="{repo_url}" target="_blank">'
+    f'<button style="background-color:#24292e;color:white;padding:8px 18px;'
+    f'border:2px solid grey;border-radius:8px;cursor:pointer;width:100%">'
+    f'GitHub Repo</button></a>',
+    unsafe_allow_html=True,
 )
+st.sidebar.markdown("---")
 
-if st.sidebar.button('New Chat'):
+if st.sidebar.button("➕  New Chat", use_container_width=True):
     reset_chat()
 
-st.sidebar.header('Your Chats')
+# ── Indexed docs ──────────────────────────────────────────────────────────────
+st.sidebar.markdown("---")
+st.sidebar.markdown("#### 📄 Indexed Documents")
+stats = get_rag_stats()
+if stats["names"]:
+    for name in stats["names"]:
+        st.sidebar.markdown(f'<span class="doc-pill">📎 {name}</span>', unsafe_allow_html=True)
+    st.sidebar.caption(f"Total chunks in index: **{stats['chunks']}**")
+    if st.sidebar.button("🗑️  Clear all documents", use_container_width=True):
+        clear_rag()
+        st.session_state['rag_file_names'] = []
+        st.rerun()
+else:
+    st.sidebar.caption("No documents indexed yet.")
 
+# ── Chat history list ─────────────────────────────────────────────────────────
+st.sidebar.markdown("---")
+st.sidebar.markdown("#### 💬 Your Chats")
 threads = list(st.session_state['chat_threads'])
 threads.reverse()
-
 for thread in threads:
     title = st.session_state["chat_titles"].get(str(thread), "new chat")
-    if st.sidebar.button(title, key=str(thread)):
+    if st.sidebar.button(title, key=str(thread), use_container_width=True):
         st.session_state['thread_id'] = thread
         raw_messages = load_conversation(thread)
         st.session_state['message_history'] = extract_display_messages(raw_messages)
 
-# ── Chat history display ─────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+#  Main area
+# ─────────────────────────────────────────────────────────────────────────────
+st.title("🤖 Lavanya's Chatbot")
 
+# ── File uploader ─────────────────────────────────────────────────────────────
+with st.expander("➕  Attach documents for RAG  (PDF · DOCX · PPTX)", expanded=False):
+    uploaded_files = st.file_uploader(
+        label="Upload files",
+        type=["pdf", "doc", "docx", "ppt", "pptx"],
+        accept_multiple_files=True,
+        label_visibility="collapsed",
+        key="rag_uploader",
+    )
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        if uploaded_files:
+            new_files = [f for f in uploaded_files
+                         if f.name not in st.session_state['rag_file_names']]
+            if new_files:
+                st.caption(f"Ready to index: {', '.join(f.name for f in new_files)}")
+            else:
+                st.caption("All selected files are already indexed.")
+    with col2:
+        if uploaded_files and st.button("📥  Index now", use_container_width=True):
+            with st.spinner("Chunking & embedding…"):
+                result = ingest_files(uploaded_files)
+            st.session_state['rag_file_names'] = result["names"]
+            st.success(
+                f"✅ Indexed **{result['docs']}** document(s) → "
+                f"**{result['chunks']}** chunks total"
+            )
+            st.rerun()
+
+# ── Chat history display ──────────────────────────────────────────────────────
 for msg in st.session_state['message_history']:
     with st.chat_message(msg['role']):
-        st.text(msg['content'])
+        st.markdown(msg['content'])
 
-# ── Chat input ───────────────────────────────────────────────────────────────
-
-user_input = st.chat_input('Type here.....')
+# ── Chat input ────────────────────────────────────────────────────────────────
+user_input = st.chat_input("Type here…")
 
 if user_input:
     thread_id = str(st.session_state['thread_id'])
 
+    # Persist title on first message of this thread
     if thread_id not in st.session_state["chat_titles"]:
         title = generate_chat_title(user_input)
         st.session_state["chat_titles"][thread_id] = title
@@ -129,14 +217,48 @@ if user_input:
 
     st.session_state["message_history"].append({"role": "user", "content": user_input})
     with st.chat_message("user"):
-        st.text(user_input)
+        st.markdown(user_input)
+
+    # ── RAG retrieval ─────────────────────────────────────────────────────────
+    rag_result = query_rag(user_input, k=4)
+    has_rag = rag_result["chunks_used"] > 0
+
+    if has_rag:
+        docs_used   = rag_result["docs_used"]
+        chunks_used = rag_result["chunks_used"]
+        sources     = rag_result["sources"]
+
+        seen = set()
+        source_pills = []
+        for s in sources:
+            label = s["file"]
+            if s["page"] is not None:
+                label += f" · p{int(s['page']) + 1}"
+            if label not in seen:
+                seen.add(label)
+                source_pills.append(label)
+
+        pills_html = "".join(
+            f'<span class="rag-badge">📎 {p}</span>' for p in source_pills
+        )
+        st.markdown(
+            f'<div class="rag-info-box">'
+            f'🔍 Answering from <span class="rag-stat">{docs_used} document(s)</span> · '
+            f'<span class="rag-stat">{chunks_used} chunk(s)</span> retrieved'
+            f'<br/>{pills_html}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    llm_question = build_rag_prompt(user_input, rag_result) if has_rag else user_input
 
     CONFIG = {
         "configurable": {"thread_id": thread_id},
-        "metadata": {"thread_id": thread_id},
-        "run_name": "chat_turn",
+        "metadata":     {"thread_id": thread_id},
+        "run_name":     "chat_turn",
     }
 
+    # ── Streaming assistant reply ─────────────────────────────────────────────
     with st.chat_message("assistant"):
         status_holder = {"box": None}
 
@@ -146,7 +268,7 @@ if user_input:
             async def run_stream():
                 try:
                     async for message_chunk, metadata in chatbot.astream(
-                        {"messages": [HumanMessage(content=user_input)]},
+                        {"messages": [HumanMessage(content=llm_question)]},
                         config=CONFIG,
                         stream_mode="messages",
                     ):
@@ -184,9 +306,9 @@ if user_input:
                     if isinstance(content, str):
                         yield content
                     elif isinstance(content, list):
-                        for item in content:
-                            if isinstance(item, dict) and item.get("type") == "text":
-                                yield item.get("text", "")
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                yield block.get("text", "")
 
         ai_message = st.write_stream(ai_only_stream())
 
